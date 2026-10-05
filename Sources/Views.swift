@@ -29,6 +29,8 @@ struct ContentView: View {
         }
         .frame(minWidth: 760, minHeight: 540)
         .background { MainWindowMark() }
+        // Nothing to show or open from the sidebar yet: no button for it either.
+        .toolbar(removing: m.decks.isEmpty ? .sidebarToggle : nil)
         .onChange(of: m.decks.isEmpty) { _, empty in
             withAnimation(.smooth) { columns = empty ? .detailOnly : .all }
         }
@@ -107,9 +109,12 @@ struct Sidebar: View {
         }
         .onDeleteCommand { m.askRemove = m.deck }
         .toolbar {
-            ToolbarItem {
-                Button { AppDelegate.openPanel() } label: { Label(s.open, systemImage: "plus") }
-                    .help(s.open)
+            // With no decks the window shows Open… itself.
+            if !m.decks.isEmpty {
+                ToolbarItem {
+                    Button { AppDelegate.openPanel() } label: { Label(s.open, systemImage: "plus") }
+                        .help(s.open)
+                }
             }
         }
     }
