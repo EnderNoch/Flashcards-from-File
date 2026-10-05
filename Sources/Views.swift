@@ -6,34 +6,35 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Bindable private var m = Model.shared
     @State private var dropping = false
-    /// No decks, no sidebar: there would be nothing in it.
-    @State private var columns = Model.shared.decks.isEmpty ? NavigationSplitViewVisibility.detailOnly : .all
 
     var body: some View {
         let s = m.s
-        NavigationSplitView(columnVisibility: $columns) {
-            Sidebar()
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
-        } detail: {
-            Group {
-                if let d = m.deck {
-                    if d.finished { ResultView(deck: d) } else { StudyView(deck: d) }
-                } else {
-                    EmptyState(dropping: dropping)
+        Group {
+            if m.decks.isEmpty {
+                // No decks yet: just the window, no sidebar and no button for one.
+                EmptyState(dropping: dropping)
+                    .navigationTitle(Model.appName)
+            } else {
+                NavigationSplitView {
+                    Sidebar()
+                        .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
+                } detail: {
+                    Group {
+                        if let d = m.deck {
+                            if d.finished { ResultView(deck: d) } else { StudyView(deck: d) }
+                        } else {
+                            EmptyState(dropping: dropping)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .navigationTitle(m.deck.map(m.name) ?? Model.appName)
+                    .navigationSubtitle(m.deck.map { $0.finished ? "" : "\($0.current + 1) / \($0.order.count)" } ?? "")
+                    .toolbar { if m.deck != nil { DeckTools() } }
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(m.deck.map(m.name) ?? Model.appName)
-            .navigationSubtitle(m.deck.map { $0.finished ? "" : "\($0.current + 1) / \($0.order.count)" } ?? "")
-            .toolbar { if m.deck != nil { DeckTools() } }
         }
         .frame(minWidth: 760, minHeight: 540)
         .background { MainWindowMark() }
-        // Nothing to show or open from the sidebar yet: no button for it either.
-        .toolbar(removing: m.decks.isEmpty ? .sidebarToggle : nil)
-        .onChange(of: m.decks.isEmpty) { _, empty in
-            withAnimation(.smooth) { columns = empty ? .detailOnly : .all }
-        }
         // Warm the formula renderer up once the window is there (its own off-screen window
         // made any earlier keeps SwiftUI from opening this one), so the first card with math
         // doesn't wait for WebKit.
