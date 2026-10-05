@@ -29,7 +29,7 @@ struct FlashcardsApp: App {
                         Button(m.name(d)) { m.openID = d.id }
                     }
                     Divider()
-                    Button(s.clearMenu) { m.clearDecks() }
+                    Button(s.clearMenu) { m.askClear = true }
                         .disabled(m.decks.isEmpty)
                 }
                 Button(s.paste) { m.paste() }
@@ -139,13 +139,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// The deck window - not Settings or a panel: keys and swipes there are theirs.
+    private static func isMain(_ w: NSWindow?) -> Bool {
+        w != nil && w === deckWindow
+    }
+
+    /// The window with the decks, as MainWindowMark finds it.
+    static weak var deckWindow: NSWindow?
+
     /// Two fingers sideways on the trackpad turn the page, as in Safari: the card follows,
     /// and past a threshold the next or previous one comes. Vertical scrolling and the
     /// momentum after lifting the fingers pass through untouched.
     private static func scroll(_ e: NSEvent) -> NSEvent? {
         let m = Model.shared
-        guard e.hasPreciseScrollingDeltas, e.momentumPhase.isEmpty,
-              NSApp.keyWindow?.attachedSheet == nil else { return e }
+        guard e.hasPreciseScrollingDeltas, e.momentumPhase.isEmpty, isMain(e.window),
+              e.window?.attachedSheet == nil else { return e }
+        // Where the fingers go, whichever way the system scrolls: with natural scrolling off
+        // the deltas point the other way.
+        let dx = e.isDirectionInvertedFromDevice ? e.scrollingDeltaX : -e.scrollingDeltaX
         switch e.phase {
         case .began:
             swiping = nil
@@ -155,7 +166,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if swiping == nil, e.scrollingDeltaX != 0 || e.scrollingDeltaY != 0 {
                 swiping = m.deck.map { !$0.finished } == true && abs(e.scrollingDeltaX) > abs(e.scrollingDeltaY)
             }
-            if swiping == true { m.swipe += e.scrollingDeltaX }
+            if swiping == true { m.swipe += dx }
         case .ended, .cancelled:
             defer { swiping = nil }
             guard swiping == true else { return e }
@@ -171,7 +182,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Space flips, arrows move, 1 and 2 rate, ⌘V pastes a deck - whatever has focus, unless
     /// a sheet or a text field is in the way. Up and down stay with the list of decks.
     private static func key(_ e: NSEvent) -> NSEvent? {
-        guard let w = NSApp.keyWindow, w.attachedSheet == nil, NSApp.modalWindow == nil,
+        guard let w = NSApp.keyWindow, isMain(w), w.attachedSheet == nil, NSApp.modalWindow == nil,
               !(w.firstResponder is NSText) else { return e }
         let m = Model.shared
         let mods = e.modifierFlags.intersection(.deviceIndependentFlagsMask)

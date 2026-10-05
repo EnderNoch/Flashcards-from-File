@@ -149,8 +149,9 @@ enum PolishReading {
         ]
         for (k, v) in symbols { s = s.replacingOccurrences(of: k, with: v) }
         // powers
-        s = sub(s, #"\^\s*\{?\s*2\s*\}?"#, " do kwadratu ")
-        s = sub(s, #"\^\s*\{?\s*3\s*\}?"#, " do sześcianu ")
+        // Only a lone 2 or 3: x^{23} or x^25 are "do potęgi", not "do kwadratu" and the rest.
+        s = sub(s, #"\^\s*(?:\{\s*2\s*\}|2(?![0-9A-Za-z]))"#, " do kwadratu ")
+        s = sub(s, #"\^\s*(?:\{\s*3\s*\}|3(?![0-9A-Za-z]))"#, " do sześcianu ")
         s = sub(s, #"\^\s*\{([^{}]*)\}"#) { " do potęgi \($0[1]) " }
         s = sub(s, #"\^\s*([A-Za-z0-9]+)"#) { " do potęgi \($0[1]) " }
         // subscripts: Cl_2 → "Cl dwa". A one-digit subscript becomes a WORD, so the voice

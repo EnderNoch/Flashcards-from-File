@@ -57,8 +57,8 @@ cat > "$NEW/Contents/Info.plist" <<PLIST
 	<key>CFBundleIconName</key><string>Flashcards</string>
 	<key>CFBundleIdentifier</key><string>$ID</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
-	<key>CFBundleShortVersionString</key><string>1.1</string>
-	<key>CFBundleVersion</key><string>2</string>
+	<key>CFBundleShortVersionString</key><string>1.1.1</string>
+	<key>CFBundleVersion</key><string>3</string>
 	<key>LSMinimumSystemVersion</key><string>26.0</string>
 	<key>LSApplicationCategoryType</key><string>public.app-category.education</string>
 	<key>NSHighResolutionCapable</key><true/>

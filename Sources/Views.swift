@@ -6,10 +6,12 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Bindable private var m = Model.shared
     @State private var dropping = false
+    /// No decks, no sidebar: there would be nothing in it.
+    @State private var columns = Model.shared.decks.isEmpty ? NavigationSplitViewVisibility.detailOnly : .all
 
     var body: some View {
         let s = m.s
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columns) {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
         } detail: {
@@ -26,6 +28,10 @@ struct ContentView: View {
             .toolbar { if m.deck != nil { DeckTools() } }
         }
         .frame(minWidth: 760, minHeight: 540)
+        .background { MainWindowMark() }
+        .onChange(of: m.decks.isEmpty) { _, empty in
+            withAnimation(.smooth) { columns = empty ? .detailOnly : .all }
+        }
         // Warm the formula renderer up once the window is there (its own off-screen window
         // made any earlier keeps SwiftUI from opening this one), so the first card with math
         // doesn't wait for WebKit.
@@ -47,6 +53,20 @@ struct ContentView: View {
             Button(s.cancel, role: .cancel) {}
         } message: {
             Text(s.resetBody)
+        }
+        .alert(m.askRemove.map { s.removeTitle(m.name($0)) } ?? "",
+               isPresented: Binding(get: { m.askRemove != nil }, set: { if !$0 { m.askRemove = nil } }),
+               presenting: m.askRemove) { d in
+            Button(s.remove, role: .destructive) { m.remove(d.id) }
+            Button(s.cancel, role: .cancel) {}
+        } message: { d in
+            if d.isFile { Text(s.removeBody) }
+        }
+        .alert(s.clearTitle, isPresented: $m.askClear) {
+            Button(s.remove, role: .destructive) { m.clearDecks() }
+            Button(s.cancel, role: .cancel) {}
+        } message: {
+            Text(s.clearBody)
         }
         .environment(\.locale, Locale(identifier: Strings.code))
         .environment(\.layoutDirection, Strings.rtl ? .rightToLeft : .leftToRight)
@@ -80,12 +100,12 @@ struct Sidebar: View {
                             }
                             Divider()
                         }
-                        Button(s.remove, role: .destructive) { m.remove(d.id) }
+                        Button(s.remove, role: .destructive) { m.askRemove = d }
                     }
                 }
             }
         }
-        .onDeleteCommand { if let id = m.openID { m.remove(id) } }
+        .onDeleteCommand { m.askRemove = m.deck }
         .toolbar {
             ToolbarItem {
                 Button { AppDelegate.openPanel() } label: { Label(s.open, systemImage: "plus") }
@@ -514,5 +534,18 @@ struct SettingsView: View {
         .fixedSize(horizontal: false, vertical: true)
         .environment(\.locale, Locale(identifier: Strings.code))
         .environment(\.layoutDirection, Strings.rtl ? .rightToLeft : .leftToRight)
+    }
+}
+
+/// Tells AppDelegate which window holds the decks, so its keys and swipes stay out of Settings.
+struct MainWindowMark: NSViewRepresentable {
+    func makeNSView(context: Context) -> Mark { Mark() }
+    func updateNSView(_ view: Mark, context: Context) {}
+
+    final class Mark: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { AppDelegate.deckWindow = window }
+        }
     }
 }

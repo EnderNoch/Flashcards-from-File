@@ -53,6 +53,9 @@ final class Model {
     /// A problem to show over the window, already in the user's language.
     var error: String?
     var askReset = false
+    /// The deck waiting for Remove from List to be confirmed.
+    var askRemove: Deck?
+    var askClear = false
     /// How far a two-finger swipe has moved the card, in points; 0 when not swiping.
     var swipe: CGFloat = 0
     /// The last move went to a later card; the card slides in from that side.
