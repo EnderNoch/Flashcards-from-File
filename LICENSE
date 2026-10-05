@@ -1,0 +1,56 @@
+Flashcards from File (Fiszki z pliku)
+Copyright © 2026 EnderNoch (Atypical Maker) — github.com/EnderNoch
+All rights reserved. / Wszelkie prawa zastrzeżone.
+
+
+TERMS (English version)
+
+This program and its source code are the property of the author and are
+NOT open source software.
+
+You may download the finished app from this repository and use it on your
+own computer for personal purposes.
+
+Without the author's prior written permission you may not:
+
+  1. copy the code, in whole or in part,
+  2. distribute, publish, or share the app or the code with third parties
+     in any form other than a link to this repository,
+  3. modify it or create derivative works,
+  4. use the code in other projects, including non-commercial ones,
+  5. use the code to train machine learning models.
+
+The program is provided "AS IS", without warranty of any kind. The
+author is not liable for any damages arising from its use.
+
+
+WARUNKI (wersja polska)
+
+Ten program i jego kod źródłowy są własnością autora i NIE są
+oprogramowaniem otwartym.
+
+Wolno pobrać gotową aplikację z tego repozytorium i używać jej na
+własnym komputerze do celów osobistych.
+
+Bez uprzedniej pisemnej zgody autora zabrania się:
+
+  1. kopiowania kodu w całości lub w części,
+  2. rozpowszechniania aplikacji i kodu, publikowania ich i udostępniania
+     osobom trzecim w innej formie niż link do tego repozytorium,
+  3. modyfikowania oraz tworzenia utworów zależnych,
+  4. wykorzystywania kodu w innych projektach, także niekomercyjnych,
+  5. wykorzystywania kodu do trenowania modeli uczenia maszynowego.
+
+Program dostarczany jest "TAK JAK JEST", bez jakiejkolwiek gwarancji.
+Autor nie ponosi odpowiedzialności za szkody wynikłe z jego użycia.
+
+
+THIRD-PARTY / ZEWNĘTRZNE
+
+Resources/katex is KaTeX (https://katex.org), © Khan Academy and other
+contributors, under the MIT License - see Resources/katex/LICENSE. The terms
+above do not apply to it.
+
+Resources/katex to KaTeX (https://katex.org), © Khan Academy i inni autorzy,
+na licencji MIT - patrz Resources/katex/LICENSE. Powyższe warunki go nie
+dotyczą.

@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="katex/katex.min.css">
+<script src="katex/katex.min.js"></script>
+<script src="katex/auto-render.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  #c {
+    display: inline-block;
+    padding: 2px 6px;
+    font-family: -apple-system, system-ui, sans-serif;
+    text-align: center;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
+  }
+  .katex { font-size: 1.1em; }
+  .katex-display { margin: .35em 0; }
+</style>
+</head>
+<body>
+<div id="c"></div>
+<script>
+// The same heuristics as the web version of Fiszki z pliku: CSV exports (NotebookLM and others)
+// often carry LaTeX without any $ around it, so formulas are found and wrapped here.
+function fixBlanks(s) {
+  return s.replace(/_{2,}/g, m => '\\text{' + '_'.repeat(m.length) + '}');
+}
+
+function autoWrapMath(text) {
+  if (/\$|\\\(|\\\[/.test(text)) {
+    return text
+      .replace(/\$\$([^]*?)\$\$/g, (_, inner) => '$$' + fixBlanks(inner) + '$$')
+      .replace(/\$([^$\n]+)\$/g,    (_, inner) => '$'  + fixBlanks(inner) + '$')
+      .replace(/\\\(([^]*?)\\\)/g,  (_, inner) => '\\(' + fixBlanks(inner) + '\\)')
+      .replace(/\\\[([^]*?)\\\]/g,  (_, inner) => '\\[' + fixBlanks(inner) + '\\]');
+  }
+  const hasCmd    = /\\[a-zA-Z]/.test(text);
+  const hasSupSub = /[A-Za-z0-9]\^[{A-Za-z0-9\-+]|[A-Za-z0-9]_[{0-9A-Za-z]/.test(text);
+  if (!hasCmd && !hasSupSub) return text;
+
+  text = fixBlanks(text);
+  if (/\\begin\s*\{/.test(text)) return '$$' + text.trim() + '$$';
+
+  // "label: formula" - the first colon outside braces
+  let depth = 0, splitAt = -1;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if      (c === '{') depth++;
+    else if (c === '}') depth--;
+    else if (c === ':' && depth === 0 && i < text.length - 2) { splitAt = i; break; }
+  }
+  const hasFrac = /\\[dt]?frac/.test(text);
+  if (splitAt !== -1) {
+    const label   = text.slice(0, splitAt + 1);
+    const formula = text.slice(splitAt + 1).trim();
+    if (/\\[a-zA-Z]|[\^_]/.test(formula)) {
+      return hasFrac ? label + '\n$$' + formula + '$$' : label + ' $' + formula + '$';
+    }
+  }
+
+  // words mixed with a few inline formulas
+  const wordCount = (text.match(/\b[a-zA-ZąćęłńóśźżĄĆĘŁŃÓŚŹŻ]{3,}\b/gu) || []).length;
+  if (wordCount >= 2) {
+    return text.replace(
+      /((?:\\[a-zA-Z]+(?:\{[^}]*\}|\[[^\]]*\])*|[A-Za-z0-9]\^[{A-Za-z0-9\-+][^,;\s]*|[A-Za-z0-9]_[{0-9A-Za-z][^,;\s]*)+)/g,
+      (m) => /\\[dt]?frac/.test(m) ? '\n$$' + m + '$$' : '$' + m + '$'
+    );
+  }
+  return hasFrac ? '$$' + text.trim() + '$$' : '$' + text.trim() + '$';
+}
+
+// KaTeX's main fonts, asked for up front: a font still loading when the text is measured
+// would change its width after the measurement.
+const fontsIn = Promise.all([
+  '1em KaTeX_Main', 'bold 1em KaTeX_Main', 'italic 1em KaTeX_Main', 'italic 1em KaTeX_Math',
+  '1em KaTeX_AMS', '1em KaTeX_Size1', '1em KaTeX_Size2', '1em KaTeX_Size3', '1em KaTeX_Size4'
+].map(f => document.fonts.load(f).catch(() => null)));
+
+// Called by the app: lays the text out at most `width` wide and, once KaTeX's fonts are in,
+// returns its size in points - measured before the fonts load it would come out too small.
+async function render(text, width, size, color) {
+  const c = document.getElementById('c');
+  c.style.maxWidth = width + 'px';
+  c.style.fontSize = size + 'px';
+  c.style.color = color;
+  c.textContent = autoWrapMath(text);
+  renderMathInElement(c, {
+    delimiters: [
+      { left: '$$', right: '$$', display: true },
+      { left: '\\[', right: '\\]', display: true },
+      { left: '\\(', right: '\\)', display: false },
+      { left: '$', right: '$', display: false }
+    ],
+    throwOnError: false
+  });
+  // Reading the size lays the text out, which is what asks for KaTeX's fonts.
+  void c.offsetWidth;
+  await fontsIn;
+  await document.fonts.ready;
+  // A wide formula may stick out past maxWidth; the app scales the picture down to fit.
+  return [Math.ceil(Math.max(c.scrollWidth, c.getBoundingClientRect().width)),
+          Math.ceil(c.getBoundingClientRect().height)];
+}
+</script>
+</body>
+</html>
