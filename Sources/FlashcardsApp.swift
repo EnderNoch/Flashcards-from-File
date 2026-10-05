@@ -13,6 +13,10 @@ struct FlashcardsApp: App {
         .windowToolbarStyle(.unified)
         // Also when the app is launched by opening a file.
         .defaultLaunchBehavior(.presented)
+        // Fiszki z pliku → Settings… (⌘,), named by the system in its language.
+        Settings {
+            SettingsView()
+        }
         .commands {
             // The app menu as in Photo Booth, without Services.
             CommandGroup(replacing: .systemServices) {}
@@ -22,7 +26,7 @@ struct FlashcardsApp: App {
                     .keyboardShortcut("o")
                 Menu(s.openRecent) {
                     ForEach(m.decks.prefix(10)) { d in
-                        Button(d.name) { m.openID = d.id }
+                        Button(m.name(d)) { m.openID = d.id }
                     }
                     Divider()
                     Button(s.clearMenu) { m.clearDecks() }
@@ -72,9 +76,13 @@ struct FlashcardsApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var keys: Any?
+    private var swipes: Any?
+    /// The current two-finger gesture: nil until its first movement says which way it goes.
+    private static var swiping: Bool?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { AppDelegate.key($0) }
+        swipes = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { AppDelegate.scroll($0) }
         // Launched by opening a file, the app doesn't show its window by itself.
         DispatchQueue.main.async { AppDelegate.showWindow() }
     }
@@ -103,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let menu = NSMenu()
         for d in Model.shared.decks.prefix(10) {
-            let item = NSMenuItem(title: d.name, action: #selector(openFromDock(_:)), keyEquivalent: "")
+            let item = NSMenuItem(title: Model.shared.name(d), action: #selector(openFromDock(_:)), keyEquivalent: "")
             item.representedObject = d.id
             item.target = self
             menu.addItem(item)
@@ -129,6 +137,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             done(panel.runModal())
         }
+    }
+
+    /// Two fingers sideways on the trackpad turn the page, as in Safari: the card follows,
+    /// and past a threshold the next or previous one comes. Vertical scrolling and the
+    /// momentum after lifting the fingers pass through untouched.
+    private static func scroll(_ e: NSEvent) -> NSEvent? {
+        let m = Model.shared
+        guard e.hasPreciseScrollingDeltas, e.momentumPhase.isEmpty,
+              NSApp.keyWindow?.attachedSheet == nil else { return e }
+        switch e.phase {
+        case .began:
+            swiping = nil
+            m.swipe = 0
+        case .changed:
+            // The first step with any movement decides: sideways is a swipe, the rest scrolls.
+            if swiping == nil, e.scrollingDeltaX != 0 || e.scrollingDeltaY != 0 {
+                swiping = m.deck.map { !$0.finished } == true && abs(e.scrollingDeltaX) > abs(e.scrollingDeltaY)
+            }
+            if swiping == true { m.swipe += e.scrollingDeltaX }
+        case .ended, .cancelled:
+            defer { swiping = nil }
+            guard swiping == true else { return e }
+            m.finishSwipe(m.swipe)
+            withAnimation(.smooth(duration: 0.3)) { m.swipe = 0 }
+            return nil
+        default:
+            break
+        }
+        return swiping == true ? nil : e
     }
 
     /// Space flips, arrows move, 1 and 2 rate, ⌘V pastes a deck - whatever has focus, unless

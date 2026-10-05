@@ -21,7 +21,7 @@ struct ContentView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle(m.deck?.name ?? Model.appName)
+            .navigationTitle(m.deck.map(m.name) ?? Model.appName)
             .navigationSubtitle(m.deck.map { $0.finished ? "" : "\($0.current + 1) / \($0.order.count)" } ?? "")
             .toolbar { if m.deck != nil { DeckTools() } }
         }
@@ -63,7 +63,7 @@ struct Sidebar: View {
                 ForEach(m.decks) { d in
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(d.name).lineLimit(1).truncationMode(.middle)
+                            Text(m.name(d)).lineLimit(1).truncationMode(.middle)
                             Text("\(d.known + d.unknown) / \(d.order.count)")
                                 .font(.caption)
                                 .monospacedDigit()
@@ -167,6 +167,7 @@ struct EmptyState: View {
 struct StudyView: View {
     let deck: Deck
     private let m = Model.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let s = m.s
@@ -177,13 +178,11 @@ struct StudyView: View {
                 if let card = deck.card {
                     CardView(card: card, flipped: deck.flipped, rating: deck.rating)
                         .id(deck.current)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: m.forward ? .trailing : .leading).combined(with: .opacity),
-                            removal: .move(edge: m.forward ? .leading : .trailing).combined(with: .opacity)))
+                        .transition(cardTransition)
                 }
             }
             .frame(maxWidth: 900, maxHeight: .infinity)
-            .animation(.smooth(duration: 0.35), value: deck.current)
+            .animation(reduceMotion ? .easeInOut(duration: 0.2) : .smooth(duration: 0.3), value: deck.current)
             HStack(spacing: 12) {
                 Button { m.previous() } label: { Image(systemName: "chevron.backward").frame(height: 20) }
                     .buttonStyle(.glass)
@@ -205,6 +204,16 @@ struct StudyView: View {
             .frame(maxWidth: 640)
         }
         .padding(28)
+    }
+
+    /// The next card slides in a little way and fades, like pages in Safari or Preview - not a
+    /// whole card's width. With Reduce Motion it only fades.
+    private var cardTransition: AnyTransition {
+        if reduceMotion { return .opacity }
+        let step: CGFloat = Strings.rtl ? -60 : 60
+        let ahead = m.forward ? step : -step
+        return .asymmetric(insertion: .offset(x: ahead).combined(with: .opacity),
+                           removal: .offset(x: -ahead).combined(with: .opacity))
     }
 }
 
@@ -258,38 +267,56 @@ struct ProgressStrip: View {
 }
 
 /// The card: question in front, answer on the back, turned over by a click or Space.
-/// Dragging it sideways goes to the next or previous card, as swiping does in the web version.
+/// A two-finger swipe on the trackpad (AppDelegate) or a drag with the mouse goes to the next or
+/// previous card; the card follows the fingers and settles back like a page in Safari.
 struct CardView: View {
     let card: Card
     let flipped: Bool
     let rating: Bool?
     private let m = Model.shared
     @State private var drag: CGFloat = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let s = m.s
         GeometryReader { g in
             let size = min(max(min(g.size.width, g.size.height * 1.4) * 0.055, 18), 42)
-            FlipCard(angle: flipped ? 180 : 0,
-                     front: Face(label: s.question, text: card.front, hint: s.clickFront, size: size, rating: rating),
-                     back: Face(label: s.answer, text: card.back, hint: s.clickBack, size: size, rating: rating))
-                .animation(.spring(duration: 0.5, bounce: 0.15), value: flipped)
-                .offset(x: drag)
-                .rotationEffect(.degrees(Double(drag) / 40))
-                .contentShape(.rect)
-                .onTapGesture { m.flip() }
-                .gesture(DragGesture(minimumDistance: 12)
-                    .onChanged { drag = $0.translation.width }
-                    .onEnded { v in
-                        let rtl = Strings.rtl
-                        if v.translation.width < -110 { rtl ? m.previous() : m.next() }
-                        else if v.translation.width > 110 { rtl ? m.next() : m.previous() }
-                        withAnimation(.spring) { drag = 0 }
-                    })
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(flipped ? card.back : card.front)
-                .accessibilityIdentifier("card")
+            let front = Face(label: s.question, text: card.front, hint: s.clickFront, size: size, rating: rating)
+            let back = Face(label: s.answer, text: card.back, hint: s.clickBack, size: size, rating: rating)
+            Group {
+                if reduceMotion {
+                    // Reduce Motion: the sides cross-fade instead of turning.
+                    ZStack {
+                        front.opacity(flipped ? 0 : 1)
+                        back.opacity(flipped ? 1 : 0)
+                    }
+                    .animation(.easeInOut(duration: 0.2), value: flipped)
+                } else {
+                    FlipCard(angle: flipped ? 180 : 0, front: front, back: back)
+                        .animation(.smooth(duration: 0.4), value: flipped)
+                }
+            }
+            .offset(x: reduceMotion ? 0 : Self.rubberBand(drag + m.swipe, limit: g.size.width / 3))
+            .contentShape(.rect)
+            .onTapGesture { m.flip() }
+            .gesture(DragGesture(minimumDistance: 12)
+                .onChanged { drag = $0.translation.width }
+                .onEnded { v in
+                    m.finishSwipe(v.translation.width)
+                    withAnimation(.smooth(duration: 0.3)) { drag = 0 }
+                })
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel(flipped ? card.back : card.front)
+            .accessibilityIdentifier("card")
         }
+    }
+
+    /// Follows the fingers at first and resists more the farther it goes, as AppKit's
+    /// elastic scrolling does.
+    static func rubberBand(_ x: CGFloat, limit: CGFloat) -> CGFloat {
+        guard limit > 0 else { return 0 }
+        let a = abs(x)
+        return (1 - 1 / (a * 0.55 / limit + 1)) * limit * (x < 0 ? -1 : 1)
     }
 }
 
@@ -312,7 +339,7 @@ struct FlipCard<Front: View, Back: View>: View, Animatable {
                 back.rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
             }
         }
-        .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+        .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.25)
     }
 }
 
@@ -448,5 +475,44 @@ struct Stat: View {
         }
         .frame(width: 130, height: 104)
         .glassEffect(.regular, in: .rect(cornerRadius: 18))
+    }
+}
+
+// MARK: settings
+
+/// The app's settings, as in Apple's apps: a grouped form in a small window - how Listen
+/// reads, and whether deck names keep their ".csv".
+struct SettingsView: View {
+    @Bindable private var m = Model.shared
+
+    var body: some View {
+        let s = m.s
+        Form {
+            Section {
+                Picker(s.reading, selection: $m.reading) {
+                    Text(s.readSystem).tag(Speech.Mode.system)
+                    Text(s.readPolish).tag(Speech.Mode.polish)
+                }
+                .pickerStyle(.radioGroup)
+                if m.reading == .polish {
+                    LabeledContent(Speech.polishVoice?.name ?? "") {
+                        Button(s.voices) { NSWorkspace.shared.open(Speech.voiceSettings) }
+                    }
+                }
+            } footer: {
+                Text(s.readPolishInfo)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                Toggle(s.showExtensions, isOn: $m.showExtensions)
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 480)
+        .fixedSize(horizontal: false, vertical: true)
+        .environment(\.locale, Locale(identifier: Strings.code))
+        .environment(\.layoutDirection, Strings.rtl ? .rightToLeft : .leftToRight)
     }
 }

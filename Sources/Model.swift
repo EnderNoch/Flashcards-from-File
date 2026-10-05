@@ -1,7 +1,5 @@
 import SwiftUI
-import AVFoundation
 import CryptoKit
-import NaturalLanguage
 import UniformTypeIdentifiers
 
 struct Card: Codable, Hashable {
@@ -55,10 +53,22 @@ final class Model {
     /// A problem to show over the window, already in the user's language.
     var error: String?
     var askReset = false
+    /// How far a two-finger swipe has moved the card, in points; 0 when not swiping.
+    var swipe: CGFloat = 0
     /// The last move went to a later card; the card slides in from that side.
     var forward = true
 
     let speech = Speech()
+
+    /// Deck names with ".csv" and the like, as Finder shows them with its own setting on.
+    var showExtensions: Bool {
+        didSet { ud.set(showExtensions, forKey: "showExtensions") }
+    }
+
+    /// How Listen reads: the system's voice as it is, or the Android app's Polish reading.
+    var reading: Speech.Mode {
+        didSet { ud.set(reading.rawValue, forKey: "reading") }
+    }
 
     static let maxDecks = 20
 
@@ -72,6 +82,8 @@ final class Model {
     private init() {
         decks = (ud.data(forKey: "decks")).flatMap { try? JSONDecoder().decode([Deck].self, from: $0) } ?? []
         openID = ud.string(forKey: "open")
+        showExtensions = ud.object(forKey: "showExtensions") as? Bool ?? true
+        reading = Speech.Mode(rawValue: ud.string(forKey: "reading") ?? "") ?? .system
         if let id = openID, !decks.contains(where: { $0.id == id }) { openID = nil }
     }
 
@@ -80,6 +92,11 @@ final class Model {
     }
 
     var s: Strings { Strings.current }
+
+    /// A deck's name as the sidebar, title and menus show it.
+    func name(_ d: Deck) -> String {
+        showExtensions || !d.isFile ? d.name : (d.name as NSString).deletingPathExtension
+    }
 
     var deck: Deck? {
         get { decks.first { $0.id == openID } }
@@ -93,6 +110,8 @@ final class Model {
     private func change(_ f: (inout Deck) -> Void) {
         guard var d = deck else { return }
         f(&d)
+        // Another card or the other side: what was being read no longer shows.
+        if d.current != deck?.current || d.flipped != deck?.flipped || d.order != deck?.order { speech.stop() }
         deck = d
     }
 
@@ -179,6 +198,14 @@ final class Model {
         }
     }
 
+    /// The end of a swipe or a drag: far enough to the left is the next card, to the right
+    /// the previous one (the other way round in right-to-left languages).
+    func finishSwipe(_ distance: CGFloat) {
+        let back = Strings.rtl ? distance < -90 : distance > 90
+        let ahead = Strings.rtl ? distance > 90 : distance < -90
+        if ahead { next() } else if back { previous() }
+    }
+
     func next() { go(to: (deck?.current ?? 0) + 1) }
     func previous() { go(to: (deck?.current ?? 0) - 1) }
 
@@ -224,7 +251,7 @@ final class Model {
     /// Reads the side of the card that is showing.
     func listen() {
         guard let d = deck, let c = d.card else { return }
-        speech.toggle(d.flipped ? c.back : c.front)
+        speech.toggle(d.flipped ? c.back : c.front, mode: reading)
     }
 }
 
@@ -280,48 +307,5 @@ enum Parser {
             rows.append(row)
         }
         return rows
-    }
-}
-
-/// Reading a card aloud with the system's voice for the card's language.
-@Observable
-final class Speech: NSObject, AVSpeechSynthesizerDelegate {
-    private(set) var speaking = false
-    @ObservationIgnored private let synth = AVSpeechSynthesizer()
-
-    override init() {
-        super.init()
-        synth.delegate = self
-    }
-
-    func toggle(_ text: String) {
-        if speaking { stop(); return }
-        let u = AVSpeechUtterance(string: Speech.readable(text))
-        let rec = NLLanguageRecognizer()
-        rec.processString(u.speechString)
-        if let lang = rec.dominantLanguage {
-            u.voice = AVSpeechSynthesisVoice(language: lang.rawValue)
-        }
-        speaking = true
-        synth.speak(u)
-    }
-
-    func stop() {
-        synth.stopSpeaking(at: .immediate)
-        speaking = false
-    }
-
-    /// LaTeX read out as written would be noise; keep the words and numbers.
-    static func readable(_ text: String) -> String {
-        text.replacingOccurrences(of: #"\\[a-zA-Z]+"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: #"[$\\{}^_]"#, with: " ", options: .regularExpression)
-    }
-
-    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didFinish u: AVSpeechUtterance) {
-        Task { @MainActor in self.speaking = false }
-    }
-
-    nonisolated func speechSynthesizer(_ s: AVSpeechSynthesizer, didCancel u: AVSpeechUtterance) {
-        Task { @MainActor in self.speaking = false }
     }
 }

@@ -57,14 +57,24 @@ Finder. Nothing leaves the Mac.
 - the decks in a sidebar, like notes in Notes; each one keeps its own place and
   ratings, so going back to a deck carries on from the same card. The same
   decks are in File → Open Recent and in the Dock icon's menu
-- a card that turns over with a click or Space, slides away when dragged
-  sideways, and shows a check or a cross when it has been rated
+- a card that turns over with a click or Space and shows a check or a cross
+  when it has been rated; a two-finger swipe on the trackpad (or a drag) turns
+  to the next or previous card like a page in Safari. Animations are the
+  system's kind — short and smooth, no bounce — and with Reduce Motion the
+  card only cross-fades
 - *Got It* / *Don't Know* with counters, and a bar over the deck: green known,
   red not, the accent for skipped
 - the end of the deck: the counts, Retry Missed and Retry All
 - Shuffle and Reset Progress in the toolbar and the Deck menu
-- Listen: the side that is showing, read by the system's voice for the card's
-  language
+- Listen: the side that is showing, read aloud. In Flashcards from File →
+  Settings… (⌘,) there are two ways: **System** — the system's voice for the
+  card's language — and **Alternative (Polish)** — the reading from the
+  Android app: always Polish, formulas in words ("E k, równa się, 1 przez 2,
+  m v do kwadratu"), chemical symbols letter by letter ("N A", "C L dwa"),
+  long pauses at colons, arrows and blanks. It uses the best Polish voice
+  installed; Voices… opens the system settings where better ones download
+- Settings also has Finder's "Show all filename extensions": off, decks are
+  named "Physics" instead of "Physics.csv"
 - keys as in the web version: Space turns, ← → move, Home / End jump, 1 is
   *Don't Know*, 2 is *Got It*
 - formulas: the same detection as the web version (`$…$`, `\(…\)`, `\[…\]`,
@@ -114,7 +124,7 @@ Spanish (español), Swedish (svenska), Thai (ไทย), Turkish (Türkçe), Ukr
 | App | Swift + SwiftUI: `Window`, `NavigationSplitView`, state in `@Observable` |
 | Glass | the system's Liquid Glass: sidebar, toolbar, `.glass` / `.glassProminent` buttons, `.glassEffect` |
 | Formulas | KaTeX 0.19 in an off-screen `WKWebView`, photographed into an image (`takeSnapshot`) — the way the Android app draws them with JLaTeXMath |
-| Speech | `AVSpeechSynthesizer`, the language from `NLLanguageRecognizer` |
+| Speech | `AVSpeechSynthesizer`, the language from `NLLanguageRecognizer`; the Polish reading ported from the Android app's `Tts.kt` |
 | Settings | `UserDefaults` (decks with their progress) |
 | Icon | `Flashcards.icon` from Icon Composer — the system does the glass and icon styles |
 | Build | `build.sh` — `swiftc`, `actool`, `Info.plist`, `codesign --sign -` (ad hoc) |
@@ -126,7 +136,8 @@ app — `swiftc` and `actool` (from Xcode, for the icon).
 
 ```
 Sources/FlashcardsApp.swift  the app: window, menus, Dock menu, keys, opening files
-Sources/Model.swift          decks, progress, the CSV parser, speech
+Sources/Model.swift          decks, progress, the CSV parser
+Sources/Speech.swift         reading aloud: system voice, or the Polish reading from Android
 Sources/Views.swift          sidebar, card, buttons, progress bar, end of the deck
 Sources/Math.swift           formulas: KaTeX off screen → an image
 Sources/Strings.swift        text in 43 languages
@@ -218,13 +229,24 @@ skopiowany w Finderze. Nic nie wychodzi poza Maca.
 - talie w pasku bocznym, jak notatki w Notatkach; każda pamięta swoje miejsce
   i oceny, więc powrót do talii zaczyna od tej samej karty. Te same talie są
   w Plik → Otwórz ostatnie i w menu ikony w Docku
-- karta, która obraca się kliknięciem albo spacją, odjeżdża przeciągnięta
-  w bok i pokazuje ptaszek albo krzyżyk, gdy już ma ocenę
+- karta, która obraca się kliknięciem albo spacją i pokazuje ptaszek albo
+  krzyżyk, gdy już ma ocenę; przesunięcie dwoma palcami na gładziku (albo
+  przeciągnięcie) zmienia kartę jak stronę w Safari. Animacje są systemowe —
+  krótkie i płynne, bez odbijania — a przy „Ogranicz ruch” karta tylko się
+  przenika
 - *Umiem* / *Nie umiem* z licznikami i pasek nad talią: zielone umiane,
   czerwone nieumiane, akcent dla pominiętych
 - koniec talii: liczby, Powtórz nieumiane i Powtórz wszystkie
 - Losuj i Resetuj postęp na pasku narzędzi i w menu Talia
-- Odsłuchaj: widoczna strona czytana głosem systemu w języku karty
+- Odsłuchaj: widoczna strona czytana na głos. W Fiszki z pliku → Ustawienia…
+  (⌘,) są dwa sposoby: **Systemowe** — głos systemu w języku karty — i
+  **Alternatywne (po polsku)** — czytanie z aplikacji na Androida: zawsze po
+  polsku, wzory słowami („E k, równa się, 1 przez 2, m v do kwadratu”),
+  symbole chemiczne literami („N A”, „C L dwa”), długie pauzy przy
+  dwukropkach, strzałkach i lukach. Używa najlepszego zainstalowanego polskiego
+  głosu; Głosy… otwiera ustawienia systemu, gdzie pobiera się lepsze
+- w Ustawieniach jest też Finderowe „Pokazuj wszystkie rozszerzenia plików”:
+  po wyłączeniu talia nazywa się „Fizyka” zamiast „Fizyka.csv”
 - klawisze jak w wersji webowej: spacja odwraca, ← → przewijają, Home / End
   skaczą, 1 to *Nie umiem*, 2 to *Umiem*
 - wzory: to samo wykrywanie co w wersji webowej (`$…$`, `\(…\)`, `\[…\]`,
@@ -271,7 +293,7 @@ wietnamski, włoski.
 | Aplikacja | Swift + SwiftUI: `Window`, `NavigationSplitView`, stan w `@Observable` |
 | Szkło | systemowe Liquid Glass: pasek boczny, pasek narzędzi, przyciski `.glass` / `.glassProminent`, `.glassEffect` |
 | Wzory | KaTeX 0.19 w niewidocznym `WKWebView`, fotografowany do obrazka (`takeSnapshot`) — tak jak aplikacja na Androida rysuje je JLaTeXMath |
-| Mowa | `AVSpeechSynthesizer`, język z `NLLanguageRecognizer` |
+| Mowa | `AVSpeechSynthesizer`, język z `NLLanguageRecognizer`; polskie czytanie przeniesione z `Tts.kt` aplikacji na Androida |
 | Pamięć ustawień | `UserDefaults` (talie razem z postępem) |
 | Ikona | `Flashcards.icon` z Icon Composera — szkło i style ikon robi system |
 | Budowanie | `build.sh` — `swiftc`, `actool`, `Info.plist`, `codesign --sign -` (ad-hoc) |
@@ -283,7 +305,8 @@ aplikacji — `swiftc` i `actool` (ten z Xcode, do ikony).
 
 ```
 Sources/FlashcardsApp.swift  aplikacja: okno, menu, menu Docka, klawisze, otwieranie plików
-Sources/Model.swift          talie, postęp, parser CSV, mowa
+Sources/Model.swift          talie, postęp, parser CSV
+Sources/Speech.swift         czytanie na głos: głos systemu albo polskie czytanie z Androida
 Sources/Views.swift          pasek boczny, karta, przyciski, pasek postępu, koniec talii
 Sources/Math.swift           wzory: KaTeX poza ekranem → obrazek
 Sources/Strings.swift        teksty w 43 językach
