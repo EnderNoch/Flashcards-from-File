@@ -129,6 +129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = Model.fileTypes
         panel.allowsMultipleSelection = false
+        panel.directoryURL = Model.shared.folder
         let done: (NSApplication.ModalResponse) -> Void = { r in
             if r == .OK, let url = panel.url { Model.shared.open(url) }
         }

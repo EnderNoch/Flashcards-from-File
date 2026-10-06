@@ -68,7 +68,22 @@ final class Model {
         didSet { ud.set(showExtensions, forKey: "showExtensions") }
     }
 
-    /// How Listen reads: the system's voice as it is, or the Android app's Polish reading.
+    /// The folder whose CSV, TXT and TSV files are the decks, found by themselves; nil to open
+    /// files one by one. Progress is kept per file like any deck's.
+    var folder: URL? {
+        didSet {
+            ud.set(folder?.path, forKey: "folder")
+            if let id = openID, isFolderFile(id), !isIn(folder, id) { openID = nil }
+            scan()
+            watch()
+        }
+    }
+    /// The files in `folder` and its subfolders, in Finder's order.
+    private(set) var folderFiles: [URL] = []
+    /// The question at the first launch: a folder, or files one by one.
+    var askFolder = false
+
+    /// How Listen reads: the system's voice as it is, or the Polish reading.
     var reading: Speech.Mode {
         didSet { ud.set(reading.rawValue, forKey: "reading") }
     }
@@ -87,7 +102,10 @@ final class Model {
         openID = ud.string(forKey: "open")
         showExtensions = ud.object(forKey: "showExtensions") as? Bool ?? true
         reading = Speech.Mode(rawValue: ud.string(forKey: "reading") ?? "") ?? .system
+        folder = ud.string(forKey: "folder").map { URL(fileURLWithPath: $0) }
         if let id = openID, !decks.contains(where: { $0.id == id }) { openID = nil }
+        scan()
+        watch()
     }
 
     private func save() {
@@ -159,8 +177,116 @@ final class Model {
         }
         var d = decks.first { $0.id == id && $0.cards == cards } ?? Deck(id: id, name: name, cards: cards)
         d.name = name
-        decks = [d] + decks.filter { $0.id != id }.prefix(Model.maxDecks - 1)
+        // Files opened one by one are a list of recent ones; the folder's decks are all kept.
+        var loose = 0
+        decks = ([d] + decks.filter { $0.id != id }).filter { deck in
+            if isFolderFile(deck.id) { return true }
+            loose += 1
+            return loose <= Model.maxDecks
+        }
         openID = id
+    }
+
+    // MARK: the folder
+
+    /// A deck from the folder, picked in the sidebar: read from the file each time, so changes
+    /// made to it show; the same cards keep their progress, changed ones start over.
+    func select(_ id: String?) {
+        guard let id, isFolderFile(id) else {
+            openID = id
+            return
+        }
+        let url = URL(fileURLWithPath: id)
+        guard let data = try? Data(contentsOf: url) else {
+            error = s.cantRead
+            return
+        }
+        let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .windowsCP1250)
+            ?? String(decoding: data, as: UTF8.self)
+        let cards = Parser.parse(text)
+        guard !cards.isEmpty else {
+            error = s.noCards
+            return
+        }
+        if let i = decks.firstIndex(where: { $0.id == id }) {
+            if decks[i].cards != cards { decks[i] = Deck(id: id, name: url.lastPathComponent, cards: cards) }
+        } else {
+            decks.append(Deck(id: id, name: url.lastPathComponent, cards: cards))
+        }
+        openID = id
+    }
+
+    func isFolderFile(_ id: String) -> Bool { isIn(folder, id) }
+
+    private func isIn(_ folder: URL?, _ id: String) -> Bool {
+        guard let folder else { return false }
+        return id.hasPrefix(folder.resolvingSymlinksInPath().path + "/")
+    }
+
+    /// Asks once, at the very first launch with nothing open yet: a folder, or files one by one.
+    func askAtFirstLaunch() {
+        guard !ud.bool(forKey: "askedFolder") else { return }
+        ud.set(true, forKey: "askedFolder")
+        if folder == nil && decks.isEmpty { askFolder = true }
+    }
+
+    func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = s.chooseFolder.trimmingCharacters(in: CharacterSet(charactersIn: "… ⋯"))
+        panel.directoryURL = folder
+        let done: (NSApplication.ModalResponse) -> Void = { r in
+            if r == .OK, let url = panel.url { Model.shared.folder = url }
+        }
+        if let w = AppDelegate.deckWindow {
+            panel.beginSheetModal(for: w, completionHandler: done)
+        } else {
+            done(panel.runModal())
+        }
+    }
+
+    /// Finds the folder's flashcard files again; the progress of ones gone is let go.
+    func scan() {
+        guard let folder else {
+            if !folderFiles.isEmpty { folderFiles = [] }
+            return
+        }
+        let found = (FileManager.default.enumerator(
+            at: folder.resolvingSymlinksInPath(), includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants])?.allObjects as? [URL] ?? [])
+            .filter { ["csv", "tsv", "txt"].contains($0.pathExtension.lowercased()) }
+            // Real paths, so they match the folder's (/tmp is /private/tmp and so on).
+            .map { $0.resolvingSymlinksInPath() }
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        if found != folderFiles { folderFiles = found }
+        let paths = Set(found.map(\.path))
+        if decks.contains(where: { isFolderFile($0.id) && !paths.contains($0.id) }) {
+            if let id = openID, isFolderFile(id), !paths.contains(id) { openID = nil }
+            decks.removeAll { isFolderFile($0.id) && !paths.contains($0.id) }
+        }
+    }
+
+    @ObservationIgnored private var stream: FSEventStreamRef?
+
+    /// New, renamed and deleted files in the folder show up at once (FSEvents, subfolders too).
+    private func watch() {
+        if let stream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
+            self.stream = nil
+        }
+        guard let folder else { return }
+        var context = FSEventStreamContext()
+        guard let s = FSEventStreamCreate(nil, { _, _, _, _, _, _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { Model.shared.scan() } }
+        }, &context, [folder.path] as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 0.3,
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagNone)) else { return }
+        FSEventStreamSetDispatchQueue(s, .main)
+        FSEventStreamStart(s)
+        stream = s
     }
 
     func remove(_ id: String) {
@@ -168,9 +294,10 @@ final class Model {
         decks.removeAll { $0.id == id }
     }
 
+    /// Clear Menu: the files opened one by one; the folder's decks stay.
     func clearDecks() {
-        openID = nil
-        decks = []
+        if let id = openID, !isFolderFile(id) { openID = nil }
+        decks.removeAll { !isFolderFile($0.id) }
     }
 
     // MARK: learning

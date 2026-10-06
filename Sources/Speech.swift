@@ -2,7 +2,7 @@ import AVFoundation
 import NaturalLanguage
 
 /// Reading a card aloud. Two ways, picked in Settings: the system's voice for the card's
-/// language, or the reading from the Android app - always Polish, formulas said in words.
+/// language, or the Polish reading - always Polish, formulas said in words.
 @Observable
 final class Speech: NSObject, AVSpeechSynthesizerDelegate {
     enum Mode: String { case system, polish }
@@ -66,13 +66,15 @@ final class Speech: NSObject, AVSpeechSynthesizerDelegate {
     }
 }
 
-/// The Android app's reading (Tts.kt with MathParser.kt), ported one to one: plain text read
+/// The Polish reading: plain text read
 /// as it is, formulas turned into Polish words, symbols with a capital letter spelled out
 /// (Na → "N A"), long pauses at colons, arrows and blanks, short ones around operators.
 enum PolishReading {
     struct Segment {
         let text: String
         let math: Bool
+        /// `$$…$$` or `\[…\]`: a formula on a line of its own.
+        var display = false
     }
 
     /// Plain text and formulas, found the way the cards find them (autoWrapMath).
@@ -91,7 +93,8 @@ enum PolishReading {
                 let r = m.range(at: i)
                 return r.location == NSNotFound ? nil : ns.substring(with: r)
             }.first ?? ""
-            out.append(Segment(text: latex, math: true))
+            let display = m.range(at: 1).location != NSNotFound || m.range(at: 2).location != NSNotFound
+            out.append(Segment(text: latex, math: true, display: display))
             last = m.range.location + m.range.length
         }
         if last < ns.length { out.append(Segment(text: ns.substring(from: last), math: false)) }
@@ -157,7 +160,7 @@ enum PolishReading {
         // subscripts: Cl_2 → "Cl dwa". A one-digit subscript becomes a WORD, so the voice
         // doesn't say "dwóch" instead of "dwa".
         s = sub(s, #"_\{([^{}]*)\}"#) { " \(subscriptWord($0[1])) " }
-        // Digits or one letter: H_2O is "H dwa O", not "H 2O" (the Android app took "2O").
+        // Digits or one letter: H_2O is "H dwa O", not "H 2O".
         s = sub(s, #"_([0-9]+|[A-Za-z])"#) { " \(subscriptWord($0[1])) " }
         // operators - a medium pause (commas)
         s = s.replacingOccurrences(of: "+", with: " , plus , ").replacingOccurrences(of: "=", with: " , równa się , ")
@@ -179,7 +182,7 @@ enum PolishReading {
         return ["zero", "jeden", "dwa", "trzy", "cztery", "pięć", "sześć", "siedem", "osiem", "dziewięć"][d]
     }
 
-    // MARK: autoWrapMath, as in card.html and MathParser.kt
+    // MARK: autoWrapMath - which parts of a card are formulas (also used to draw them)
 
     private static func fixBlanks(_ s: String) -> String {
         sub(s, #"_{2,}"#) { "\\text{" + $0[0] + "}" }

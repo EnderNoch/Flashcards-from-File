@@ -2,10 +2,11 @@
 
 *[Po polsku niżej.](#po-polsku)*
 
-Flashcards for macOS from a plain file: open a CSV, TXT or TSV with two
-columns — question and answer — and go through the cards. Click to turn one
+Flashcards for macOS from plain files: point it at a folder of CSV, TXT or
+TSV files with two columns — question and answer — and every deck is in the
+sidebar at once, new ones too; or open files one by one. Go through the cards. Click to turn one
 over, mark it *Got It* or *Don't Know*, and at the end retry the ones you
-missed. Formulas are drawn offline with KaTeX, also when the file has bare
+missed. Formulas are typeset right in the app, also when the file has bare
 LaTeX without any `$` (NotebookLM exports and the like).
 
 The Mac version of [Fiszki z pliku](https://github.com/EnderNoch/fiszki-z-pliku)
@@ -48,9 +49,17 @@ Kinetic energy;E_k = \frac{1}{2} m v^2
 "A cell; with a semicolon";"An answer with ""quotes"""
 ```
 
-A file can be opened with ⌘O, dropped on the window or on the Dock icon,
-opened from Finder (Open With), or pasted: ⌘V takes text or a file copied in
-Finder. Nothing leaves the Mac.
+**A folder of decks.** At the first launch the app asks where you keep your
+flashcards. Choose a folder and its CSV, TXT and TSV files — subfolders too,
+each a section of the sidebar, like "Chemistry" and "Physics" — are all
+there without opening anything; files added, renamed or deleted later show up
+at once. Every file keeps its own progress; when a file's cards change, it
+starts over. The folder is changed or let go in Settings (⌘,).
+
+**Or one by one.** A file can be opened with ⌘O, dropped on the window or on
+the Dock icon, opened from Finder or another app (Open With — Claude's
+"Open in Flashcards from File" too), or pasted: ⌘V takes text or a file
+copied in Finder. Nothing leaves the Mac.
 
 ## What it does
 
@@ -68,18 +77,18 @@ Finder. Nothing leaves the Mac.
 - Shuffle and Reset Progress in the toolbar and the Deck menu
 - Listen: the side that is showing, read aloud. In Flashcards from File →
   Settings… (⌘,) there are two ways: **System** — the system's voice for the
-  card's language — and **Alternative (Polish)** — the reading from the
-  Android app: always Polish, formulas in words ("E k, równa się, 1 przez 2,
-  m v do kwadratu"), chemical symbols letter by letter ("N A", "C L dwa"),
-  long pauses at colons, arrows and blanks. It uses the best Polish voice
+  card's language — and **Alternative (Polish)** — always Polish, formulas in words ("E k, równa
+  się, 1 przez 2, m v do kwadratu"), chemical symbols letter by letter (NaCl
+  as "N A C L", Cl₂ as "C L dwa"), long pauses at colons, arrows and blanks.
+  It uses the best Polish voice
   installed; Voices… opens the system settings where better ones download
 - Settings also has Finder's "Show all filename extensions": off, decks are
   named "Physics" instead of "Physics.csv"
 - keys as in the web version: Space turns, ← → move, Home / End jump, 1 is
   *Don't Know*, 2 is *Got It*
 - formulas: the same detection as the web version (`$…$`, `\(…\)`, `\[…\]`,
-  LaTeX commands, `x^2`, `H_2O`, "label: formula"), drawn by KaTeX bundled in
-  the app — no internet, no CDN
+  LaTeX commands, `x^2`, `H_2O`, "label: formula"), typeset natively by SwiftMath
+  in the Fira Math font — no web view, no internet
 
 ## Everything from the system
 
@@ -123,26 +132,27 @@ Spanish (español), Swedish (svenska), Thai (ไทย), Turkish (Türkçe), Ukr
 | --- | --- |
 | App | Swift + SwiftUI: `Window`, `NavigationSplitView`, state in `@Observable` |
 | Glass | the system's Liquid Glass: sidebar, toolbar, `.glass` / `.glassProminent` buttons, `.glassEffect` |
-| Formulas | KaTeX 0.19 in an off-screen `WKWebView`, photographed into an image (`takeSnapshot`) — the way the Android app draws them with JLaTeXMath |
-| Speech | `AVSpeechSynthesizer`, the language from `NLLanguageRecognizer`; the Polish reading ported from the Android app's `Tts.kt` |
+| Formulas | [SwiftMath](https://github.com/mgriebling/SwiftMath) (vendored in `Vendor/`) typesets the LaTeX, SwiftUI's `Canvas` draws it — natively, no web view |
+| Speech | `AVSpeechSynthesizer`, the language from `NLLanguageRecognizer` |
 | Settings | `UserDefaults` (decks with their progress) |
 | Icon | `Flashcards.icon` from Icon Composer — the system does the glass and icon styles |
 | Build | `build.sh` — `swiftc`, `actool`, `Info.plist`, `codesign --sign -` (ad hoc) |
 
-No Xcode project and no dependencies besides KaTeX, which ships inside the
-app — `swiftc` and `actool` (from Xcode, for the icon).
+No Xcode project and no package manager: SwiftMath's sources are in the
+repository and build into the app — `swiftc` and `actool` (from Xcode, for the
+icon).
 
 ## Files
 
 ```
 Sources/FlashcardsApp.swift  the app: window, menus, Dock menu, keys, opening files
 Sources/Model.swift          decks, progress, the CSV parser
-Sources/Speech.swift         reading aloud: system voice, or the Polish reading from Android
+Sources/Speech.swift         reading aloud: the system's voice, or the Polish reading
 Sources/Views.swift          sidebar, card, buttons, progress bar, end of the deck
-Sources/Math.swift           formulas: KaTeX off screen → an image
+Sources/Math.swift           formulas: a card side as lines of LaTeX, drawn in a Canvas
 Sources/Strings.swift        text in 43 languages
-Resources/card.html          the page KaTeX lays a card side out in (formula detection)
-Resources/katex/             KaTeX (MIT)
+Vendor/SwiftMath/            SwiftMath (MIT) with the Fira Math and Latin Modern Math fonts
+Vendor/SwiftMathBridge.swift the one call the app makes into SwiftMath
 Flashcards.icon              the icon from Icon Composer (SVG layers + icon.json)
 build.sh                     build, Flashcards-from-File.zip, install into /Applications
 screenshots/                 screenshots for this README
@@ -163,7 +173,8 @@ All rights reserved — see [LICENSE](LICENSE). You may download the finished
 app and use it on your own computer. This is not open source: copying the
 code, distributing it other than by a link to this repository, modifying it
 and training AI models on it require the author's written permission.
-KaTeX in `Resources/katex` is under its own MIT license.
+SwiftMath in `Vendor/SwiftMath` is under its own MIT license, its fonts under
+the SIL Open Font License and the GUST Font License.
 
 Made by [EnderNoch](https://github.com/EnderNoch) (Atypical Maker) · part of
 [Atypical Maker Mac Apps](https://github.com/EnderNoch/Atypical-Maker-Mac-Apps).
@@ -172,10 +183,12 @@ Made by [EnderNoch](https://github.com/EnderNoch) (Atypical Maker) · part of
 
 ## Po polsku
 
-Fiszki na macOS ze zwykłego pliku: otwierasz CSV, TXT albo TSV z dwiema
-kolumnami — pytanie i odpowiedź — i przerabiasz karty. Klik odwraca kartę,
+Fiszki na macOS ze zwykłych plików: wskazujesz folder z plikami CSV, TXT albo
+TSV z dwiema kolumnami — pytanie i odpowiedź — i wszystkie talie od razu są
+w pasku bocznym, także nowe; albo otwierasz pliki pojedynczo. Potem
+przerabiasz karty. Klik odwraca kartę,
 oznaczasz *Umiem* albo *Nie umiem*, a na końcu powtarzasz nieumiane. Wzory
-rysuje offline KaTeX, także gdy w pliku jest goły LaTeX bez `$` (eksporty
+składa sama aplikacja, także gdy w pliku jest goły LaTeX bez `$` (eksporty
 z NotebookLM i podobne).
 
 Wersja na Maca [Fiszek z pliku](https://github.com/EnderNoch/fiszki-z-pliku)
@@ -220,9 +233,18 @@ Energia kinetyczna;E_k = \frac{1}{2} m v^2
 "Komórka; ze średnikiem";"Odpowiedź z ""cudzysłowem"""
 ```
 
-Plik otwiera się przez ⌘O, upuszczenie na okno albo na ikonę w Docku, z
-Findera (Otwórz za pomocą) albo wklejeniem: ⌘V bierze tekst albo plik
-skopiowany w Finderze. Nic nie wychodzi poza Maca.
+**Folder z taliami.** Przy pierwszym uruchomieniu aplikacja pyta, gdzie
+trzymasz fiszki. Wskaż folder, a jego pliki CSV, TXT i TSV — także
+z podfolderów, każdy jako osobna sekcja paska bocznego, np. „Chemia”
+i „Fizyka” — są od razu na miejscu, bez otwierania; pliki dodane, przemianowane
+albo usunięte później pojawiają się i znikają same. Każdy plik ma swój postęp;
+gdy karty w pliku się zmienią, zaczyna od nowa. Folder zmienia się albo
+odpina w Ustawieniach (⌘,).
+
+**Albo pojedynczo.** Plik otwiera się przez ⌘O, upuszczenie na okno albo na
+ikonę w Docku, z Findera albo innej aplikacji (Otwórz za pomocą — także
+z aplikacji Claude) albo wklejeniem: ⌘V bierze tekst albo
+plik skopiowany w Finderze. Nic nie wychodzi poza Maca.
 
 ### Co potrafi
 
@@ -240,18 +262,18 @@ skopiowany w Finderze. Nic nie wychodzi poza Maca.
 - Losuj i Resetuj postęp na pasku narzędzi i w menu Talia
 - Odsłuchaj: widoczna strona czytana na głos. W Fiszki z pliku → Ustawienia…
   (⌘,) są dwa sposoby: **Systemowe** — głos systemu w języku karty — i
-  **Alternatywne (po polsku)** — czytanie z aplikacji na Androida: zawsze po
-  polsku, wzory słowami („E k, równa się, 1 przez 2, m v do kwadratu”),
-  symbole chemiczne literami („N A”, „C L dwa”), długie pauzy przy
-  dwukropkach, strzałkach i lukach. Używa najlepszego zainstalowanego polskiego
+  **Alternatywne (po polsku)** — zawsze po polsku, wzory słowami („E k, równa
+  się, 1 przez 2, m v do kwadratu”), symbole chemiczne literami (NaCl jako
+  „en a ce el”, Cl₂ jako „ce el dwa”), długie pauzy przy dwukropkach,
+  strzałkach i lukach. Używa najlepszego zainstalowanego polskiego
   głosu; Głosy… otwiera ustawienia systemu, gdzie pobiera się lepsze
 - w Ustawieniach jest też Finderowe „Pokazuj wszystkie rozszerzenia plików”:
   po wyłączeniu talia nazywa się „Fizyka” zamiast „Fizyka.csv”
 - klawisze jak w wersji webowej: spacja odwraca, ← → przewijają, Home / End
   skaczą, 1 to *Nie umiem*, 2 to *Umiem*
 - wzory: to samo wykrywanie co w wersji webowej (`$…$`, `\(…\)`, `\[…\]`,
-  komendy LaTeX, `x^2`, `H_2O`, „etykieta: wzór”), rysowane przez KaTeX
-  wbudowany w aplikację — bez internetu i bez CDN
+  komendy LaTeX, `x^2`, `H_2O`, „etykieta: wzór”), składane natywnie przez
+  SwiftMath czcionką Fira Math — bez widoku przeglądarki i bez internetu
 
 ### Wszystko z systemu
 
@@ -292,26 +314,27 @@ wietnamski, włoski.
 | --- | --- |
 | Aplikacja | Swift + SwiftUI: `Window`, `NavigationSplitView`, stan w `@Observable` |
 | Szkło | systemowe Liquid Glass: pasek boczny, pasek narzędzi, przyciski `.glass` / `.glassProminent`, `.glassEffect` |
-| Wzory | KaTeX 0.19 w niewidocznym `WKWebView`, fotografowany do obrazka (`takeSnapshot`) — tak jak aplikacja na Androida rysuje je JLaTeXMath |
-| Mowa | `AVSpeechSynthesizer`, język z `NLLanguageRecognizer`; polskie czytanie przeniesione z `Tts.kt` aplikacji na Androida |
+| Wzory | [SwiftMath](https://github.com/mgriebling/SwiftMath) (w `Vendor/`) składa LaTeX, `Canvas` ze SwiftUI go rysuje — natywnie, bez widoku przeglądarki |
+| Mowa | `AVSpeechSynthesizer`, język z `NLLanguageRecognizer` |
 | Pamięć ustawień | `UserDefaults` (talie razem z postępem) |
 | Ikona | `Flashcards.icon` z Icon Composera — szkło i style ikon robi system |
 | Budowanie | `build.sh` — `swiftc`, `actool`, `Info.plist`, `codesign --sign -` (ad-hoc) |
 
-Bez projektu Xcode i bez zależności poza KaTeX, który jest w środku
-aplikacji — `swiftc` i `actool` (ten z Xcode, do ikony).
+Bez projektu Xcode i bez menedżera pakietów: źródła SwiftMath są w repo
+i kompilują się razem z aplikacją — `swiftc` i `actool` (ten z Xcode, do
+ikony).
 
 ### Pliki
 
 ```
 Sources/FlashcardsApp.swift  aplikacja: okno, menu, menu Docka, klawisze, otwieranie plików
 Sources/Model.swift          talie, postęp, parser CSV
-Sources/Speech.swift         czytanie na głos: głos systemu albo polskie czytanie z Androida
+Sources/Speech.swift         czytanie na głos: głos systemu albo czytanie po polsku
 Sources/Views.swift          pasek boczny, karta, przyciski, pasek postępu, koniec talii
-Sources/Math.swift           wzory: KaTeX poza ekranem → obrazek
+Sources/Math.swift           wzory: strona karty jako wiersze LaTeX, rysowane w Canvas
 Sources/Strings.swift        teksty w 43 językach
-Resources/card.html          strona, na której KaTeX układa stronę karty (wykrywanie wzorów)
-Resources/katex/             KaTeX (MIT)
+Vendor/SwiftMath/            SwiftMath (MIT) z czcionkami Fira Math i Latin Modern Math
+Vendor/SwiftMathBridge.swift jedno wywołanie aplikacji do SwiftMath
 Flashcards.icon              ikona z Icon Composera (warstwy SVG + icon.json)
 build.sh                     budowanie, Flashcards-from-File.zip i instalacja w /Applications
 screenshots/                 zrzuty ekranu do README
@@ -331,7 +354,8 @@ ad-hoc, pakuje do `Flashcards-from-File.zip` i instaluje w `/Applications`.
 Wszelkie prawa zastrzeżone — patrz [LICENSE](LICENSE). Gotową aplikację wolno
 pobrać i używać na własnym komputerze. To nie jest oprogramowanie otwarte:
 kopiowanie kodu, rozpowszechnianie inaczej niż linkiem do tego repozytorium,
-zmiany i trenowanie na nim modeli AI wymagają pisemnej zgody autora. KaTeX
-w `Resources/katex` ma własną licencję MIT.
+zmiany i trenowanie na nim modeli AI wymagają pisemnej zgody autora. SwiftMath
+w `Vendor/SwiftMath` ma własną licencję MIT, a jego czcionki SIL Open Font
+License i GUST Font License.
 
 Autor: [EnderNoch](https://github.com/EnderNoch) (Atypical Maker).

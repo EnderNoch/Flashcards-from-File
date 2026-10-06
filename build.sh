@@ -20,16 +20,22 @@ TMP="$(mktemp -d)"
 NEW="$TMP/$NAME.app"
 trap 'rm -rf "$TMP"' EXIT
 
+# Wzory sklada SwiftMath z Vendor/SwiftMath (MIT, licencja obok) - natywnie, bez WebKitu.
+# Osobny modul, bo to cudzy kod pisany bez -default-isolation MainActor.
+echo "› SwiftMath"
+mkdir -p "$TMP/mod" "$NEW/Contents/MacOS" "$NEW/Contents/Resources"
+swiftc -O -swift-version 5 -parse-as-library -module-name SwiftMath \
+	-target arm64-apple-macos26.0 \
+	-emit-module -emit-module-path "$TMP/mod/SwiftMath.swiftmodule" \
+	-emit-library -static -o "$TMP/mod/libSwiftMath.a" \
+	$(find Vendor/SwiftMath -name '*.swift') Vendor/SwiftMathBridge.swift 2>&1 | grep -E "error:" || true
+ditto Vendor/SwiftMath/mathFonts.bundle "$NEW/Contents/Resources/mathFonts.bundle"
+
 echo "› kompiluje"
-mkdir -p "$NEW/Contents/MacOS" "$NEW/Contents/Resources"
 swiftc -O -swift-version 5 -default-isolation MainActor \
 	-target arm64-apple-macos26.0 \
+	-I "$TMP/mod" -L "$TMP/mod" -lSwiftMath \
 	Sources/*.swift -o "$NEW/Contents/MacOS/$EXEC"
-
-# Wzory rysuje KaTeX z Resources/katex (MIT, licencja obok) - offline, bez CDN.
-echo "› KaTeX i szablon karty"
-cp Resources/card.html "$NEW/Contents/Resources/"
-ditto Resources/katex "$NEW/Contents/Resources/katex"
 
 # Ikona z Icon Composera (Flashcards.icon): system sam kladzie szklo i style ikon.
 # actool pamieta ikone po sciezce, wiec kompiluje kopie z jednorazowego katalogu.
@@ -57,8 +63,8 @@ cat > "$NEW/Contents/Info.plist" <<PLIST
 	<key>CFBundleIconName</key><string>Flashcards</string>
 	<key>CFBundleIdentifier</key><string>$ID</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
-	<key>CFBundleShortVersionString</key><string>1.1.1</string>
-	<key>CFBundleVersion</key><string>3</string>
+	<key>CFBundleShortVersionString</key><string>1.2</string>
+	<key>CFBundleVersion</key><string>4</string>
 	<key>LSMinimumSystemVersion</key><string>26.0</string>
 	<key>LSApplicationCategoryType</key><string>public.app-category.education</string>
 	<key>NSHighResolutionCapable</key><true/>

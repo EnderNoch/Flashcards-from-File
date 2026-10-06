@@ -47,10 +47,14 @@ Autor nie ponosi odpowiedzialności za szkody wynikłe z jego użycia.
 
 THIRD-PARTY / ZEWNĘTRZNE
 
-Resources/katex is KaTeX (https://katex.org), © Khan Academy and other
-contributors, under the MIT License - see Resources/katex/LICENSE. The terms
-above do not apply to it.
+Vendor/SwiftMath is SwiftMath (https://github.com/mgriebling/SwiftMath),
+© Computer Inspirations and contributors, under the MIT License - see
+Vendor/SwiftMath/LICENSE; its fonts are under the SIL Open Font License (Fira
+Math) and the GUST Font License (Latin Modern Math), see
+Vendor/SwiftMath/mathFonts.bundle. The terms above do not apply to them.
 
-Resources/katex to KaTeX (https://katex.org), © Khan Academy i inni autorzy,
-na licencji MIT - patrz Resources/katex/LICENSE. Powyższe warunki go nie
-dotyczą.
+Vendor/SwiftMath to SwiftMath (https://github.com/mgriebling/SwiftMath),
+© Computer Inspirations i inni autorzy, na licencji MIT - patrz
+Vendor/SwiftMath/LICENSE; jego czcionki są na licencjach SIL Open Font License
+(Fira Math) i GUST Font License (Latin Modern Math), patrz
+Vendor/SwiftMath/mathFonts.bundle. Powyższe warunki ich nie dotyczą.

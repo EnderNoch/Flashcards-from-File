@@ -1,102 +1,114 @@
-import AppKit
-import WebKit
+import SwiftUI
+import SwiftMath
 
-/// Formulas on cards, drawn offline with KaTeX (Resources/katex) into a picture, the way the
-/// Android version draws them with JLaTeXMath. One web view, off screen, lays out a card side
-/// and photographs it; the card itself shows only the picture, so it flips, scales and sits
-/// on glass like any other image.
-final class MathRenderer: NSObject, WKNavigationDelegate {
-    static let shared = MathRenderer()
-
-    /// Text the parser in card.html would treat as math - the same signals as its autoWrapMath.
+/// Formulas on cards, typeset natively by SwiftMath (Vendor/SwiftMath) and drawn by SwiftUI
+/// itself - no web view. A side with math becomes lines of LaTeX: words and inline formulas
+/// wrap together, `$$…$$` formulas stand on lines of their own.
+enum CardMath {
+    /// Text the formula detection (autoWrap) would treat as math.
     static func hasMath(_ text: String) -> Bool {
         text.contains("$") || text.contains("\\(") || text.contains("\\[")
             || text.range(of: #"\\[a-zA-Z]"#, options: .regularExpression) != nil
             || text.range(of: #"[A-Za-z0-9]\^[{A-Za-z0-9+-]|[A-Za-z0-9]_[{0-9A-Za-z]"#, options: .regularExpression) != nil
     }
 
-    struct Key: Hashable {
-        let text: String
-        let width: Int
-        let size: Int
-        let color: String
+    struct Line {
+        let latex: String
+        let block: Bool
     }
 
-    private let web: WKWebView
-    private let window: NSWindow
-    private var loaded = false
-    private var waitingForLoad: [CheckedContinuation<Void, Never>] = []
-    /// Renders go one at a time: they share the one web view.
-    private var queue: Task<Void, Never>?
-    private var cache: [Key: NSImage] = [:]
-
-    private override init() {
-        let config = WKWebViewConfiguration()
-        web = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), configuration: config)
-        web.setValue(false, forKey: "drawsBackground")
-        // Off screen but in a real window, so it lays out and draws at the screen's scale.
-        window = NSWindow(contentRect: NSRect(x: -20000, y: -20000, width: 600, height: 400),
-                          styleMask: .borderless, backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.contentView = web
-        window.orderBack(nil)
-        super.init()
-        web.navigationDelegate = self
-        if let page = Bundle.main.url(forResource: "card", withExtension: "html") {
-            web.loadFileURL(page, allowingReadAccessTo: page.deletingLastPathComponent())
+    /// The side's text cut into lines: plain words go into `\text{}` one by one so they can
+    /// wrap, inline formulas stay between them, block formulas and line breaks start a new line.
+    static func lines(_ raw: String) -> [Line] {
+        var out: [Line] = []
+        var current: [String] = []
+        func flush() {
+            if !current.isEmpty { out.append(Line(latex: current.joined(separator: "\\ "), block: false)) }
+            current = []
         }
-    }
-
-    nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        Task { @MainActor in
-            self.loaded = true
-            self.waitingForLoad.forEach { $0.resume() }
-            self.waitingForLoad = []
-        }
-    }
-
-    func cached(_ key: Key) -> NSImage? { cache[key] }
-
-    /// The text laid out at most `width` points wide in `size`-point type; nil if it fails.
-    func image(_ key: Key) async -> NSImage? {
-        if let hit = cache[key] { return hit }
-        let previous = queue
-        let task = Task { () -> NSImage? in
-            await previous?.value
-            if let hit = cache[key] { return hit }
-            let img = await draw(key)
-            if let img {
-                if cache.count > 200 { cache.removeAll() }
-                cache[key] = img
+        for seg in PolishReading.segments(raw) {
+            if seg.math {
+                if seg.display {
+                    flush()
+                    out.append(Line(latex: seg.text, block: true))
+                } else {
+                    current.append(seg.text)
+                }
+            } else {
+                for (n, part) in seg.text.components(separatedBy: "\n").enumerated() {
+                    if n > 0 { flush() }
+                    for word in part.split(separator: " ", omittingEmptySubsequences: true) {
+                        current.append("\\text{" + escape(String(word)) + "}")
+                    }
+                }
             }
-            return img
         }
-        queue = Task { _ = await task.value }
-        return await task.value
+        flush()
+        return out
     }
 
-    private func draw(_ key: Key) async -> NSImage? {
-        if !loaded { await withCheckedContinuation { waitingForLoad.append($0) } }
-        // Room for the text to lay out in; the photo then takes only what it covers.
-        resize(NSSize(width: CGFloat(key.width) + 40, height: 3000))
-        let args: [String: Any] = ["t": key.text, "w": key.width, "s": key.size, "c": key.color]
-        guard let size = try? await web.callAsyncJavaScript(
-            "return await render(t, w, s, c)", arguments: args, contentWorld: .page) as? [NSNumber],
-              size.count == 2 else { return nil }
-        let w = max(1, CGFloat(truncating: size[0])), h = max(1, CGFloat(truncating: size[1]))
-        if w > web.frame.width || h > web.frame.height {
-            resize(NSSize(width: max(w, web.frame.width), height: max(h, web.frame.height)))
+    /// Plain text inside `\text{}`: braces and backslashes would be read as LaTeX.
+    private static func escape(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "/")
+            .replacingOccurrences(of: "{", with: "(")
+            .replacingOccurrences(of: "}", with: ")")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "&", with: "\\&")
+            .replacingOccurrences(of: "#", with: "\\#")
+    }
+}
+
+/// A card side with formulas, drawn into a Canvas in the space it is given: lines centred,
+/// the type made smaller until everything fits, like `minimumScaleFactor` on plain text.
+struct MathText: View {
+    let text: String
+    let size: CGFloat
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let lines = CardMath.lines(text)
+        let dark = scheme == .dark
+        // LaTeX SwiftMath can't read shows as the text it is.
+        if lines.contains(where: { MathLayout($0.latex, size: size, maxWidth: 0, block: $0.block) == nil }) {
+            Text(text)
+                .font(.system(size: size, weight: .medium))
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.3)
+        } else {
+            canvas(lines, dark: dark)
         }
-        // Let WebKit paint before the photo.
-        try? await Task.sleep(for: .milliseconds(30))
-        let shot = WKSnapshotConfiguration()
-        shot.rect = NSRect(x: 0, y: 0, width: w, height: h)
-        shot.afterScreenUpdates = true
-        return try? await web.takeSnapshot(configuration: shot)
     }
 
-    private func resize(_ size: NSSize) {
-        window.setContentSize(size)
-        web.frame = NSRect(origin: .zero, size: size)
+    private func canvas(_ lines: [CardMath.Line], dark: Bool) -> some View {
+        Canvas { context, area in
+            guard let fit = Self.fit(lines, size: size, in: area) else { return }
+            let color: NSColor = dark ? .white.withAlphaComponent(0.88) : .black.withAlphaComponent(0.86)
+            let gap = fit.size * 0.35
+            let total = fit.layouts.reduce(0) { $0 + $1.height } + gap * CGFloat(max(0, fit.layouts.count - 1))
+            var y = (area.height - total) / 2
+            context.withCGContext { cg in
+                for l in fit.layouts {
+                    l.draw(in: cg, at: CGPoint(x: (area.width - l.width) / 2, y: y), color: color)
+                    y += l.height + gap
+                }
+            }
+        }
+        .accessibilityLabel(text)
+    }
+
+    /// The largest type, from `size` down, at which all lines fit in `area`.
+    private static func fit(_ lines: [CardMath.Line], size: CGFloat, in area: CGSize) -> (size: CGFloat, layouts: [MathLayout])? {
+        var s = size
+        var best: (size: CGFloat, layouts: [MathLayout])?
+        for _ in 0..<10 {
+            let layouts = lines.compactMap { MathLayout($0.latex, size: s, maxWidth: area.width, block: $0.block) }
+            guard layouts.count == lines.count else { return nil }
+            best = (s, layouts)
+            let height = layouts.reduce(0) { $0 + $1.height } + s * 0.35 * CGFloat(max(0, layouts.count - 1))
+            let width = layouts.map(\.width).max() ?? 0
+            if height <= area.height && width <= area.width + 1 { break }
+            s *= 0.85
+        }
+        return best
     }
 }

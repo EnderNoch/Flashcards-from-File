@@ -1,0 +1,3 @@
+1d2c90827e9c3908269d810d055fb03b7da5fd53
+Patched: MathRender/MTMathListBuilder.swift - no math spacing for punctuation inside \text (marked "Flashcards from File").
+Only FiraMath-Regular and latinmodern-math are kept in mathFonts.bundle.

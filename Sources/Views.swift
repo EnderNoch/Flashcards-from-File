@@ -6,16 +6,18 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Bindable private var m = Model.shared
     @State private var dropping = false
+    /// The sidebar opens with the split view, whatever state the window last saved.
+    @State private var columns = NavigationSplitViewVisibility.all
 
     var body: some View {
         let s = m.s
         Group {
-            if m.decks.isEmpty {
+            if m.decks.isEmpty && m.folder == nil {
                 // No decks yet: just the window, no sidebar and no button for one.
                 EmptyState(dropping: dropping)
                     .navigationTitle(Model.appName)
             } else {
-                NavigationSplitView {
+                NavigationSplitView(columnVisibility: $columns) {
                     Sidebar()
                         .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 340)
                 } detail: {
@@ -31,14 +33,11 @@ struct ContentView: View {
                     .navigationSubtitle(m.deck.map { $0.finished ? "" : "\($0.current + 1) / \($0.order.count)" } ?? "")
                     .toolbar { if m.deck != nil { DeckTools() } }
                 }
+                .onAppear { columns = .all }
             }
         }
         .frame(minWidth: 760, minHeight: 540)
         .background { MainWindowMark() }
-        // Warm the formula renderer up once the window is there (its own off-screen window
-        // made any earlier keeps SwiftUI from opening this one), so the first card with math
-        // doesn't wait for WebKit.
-        .task { _ = MathRenderer.shared }
         .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
             guard let p = providers.first else { return false }
             _ = p.loadObject(ofClass: URL.self) { url, _ in
@@ -65,6 +64,13 @@ struct ContentView: View {
         } message: { d in
             if d.isFile { Text(s.removeBody) }
         }
+        .alert(s.askTitle, isPresented: $m.askFolder) {
+            Button(s.chooseFolder) { m.chooseFolder() }
+            Button(s.oneByOne, role: .cancel) {}
+        } message: {
+            Text(s.askBody)
+        }
+        .onAppear { m.askAtFirstLaunch() }
         .alert(s.clearTitle, isPresented: $m.askClear) {
             Button(s.remove, role: .destructive) { m.clearDecks() }
             Button(s.cancel, role: .cancel) {}
@@ -76,47 +82,94 @@ struct ContentView: View {
     }
 }
 
+/// The folder's files, grouped by the subfolder they are in, then the files opened one by one.
 struct Sidebar: View {
     @Bindable private var m = Model.shared
 
     var body: some View {
         let s = m.s
-        List(selection: $m.openID) {
-            Section(s.decks) {
-                ForEach(m.decks) { d in
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(m.name(d)).lineLimit(1).truncationMode(.middle)
-                            Text("\(d.known + d.unknown) / \(d.order.count)")
-                                .font(.caption)
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
+        let loose = m.decks.filter { !m.isFolderFile($0.id) }
+        List(selection: Binding(get: { m.openID }, set: { m.select($0) })) {
+            if let folder = m.folder {
+                ForEach(groups(in: folder), id: \.title) { g in
+                    Section {
+                        ForEach(g.files, id: \.path) { url in
+                            let d = m.decks.first { $0.id == url.path }
+                            DeckRow(name: m.showExtensions ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent,
+                                    progress: d.map { "\($0.known + $0.unknown) / \($0.order.count)" },
+                                    icon: "doc.text")
+                                .tag(url.path)
+                                .contextMenu {
+                                    Button(s.showInFinder) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                                }
                         }
-                    } icon: {
-                        Image(systemName: d.isFile ? "doc.text" : "doc.on.clipboard")
+                    } header: {
+                        Text(g.title)
                     }
-                    .tag(d.id)
-                    .contextMenu {
-                        if d.isFile {
-                            Button(s.showInFinder) {
-                                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: d.id)])
+                }
+            }
+            if !loose.isEmpty {
+                Section(s.decks) {
+                    ForEach(loose) { d in
+                        DeckRow(name: m.name(d), progress: "\(d.known + d.unknown) / \(d.order.count)",
+                                icon: d.isFile ? "doc.text" : "doc.on.clipboard")
+                            .tag(d.id)
+                            .contextMenu {
+                                if d.isFile {
+                                    Button(s.showInFinder) {
+                                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: d.id)])
+                                    }
+                                    Divider()
+                                }
+                                Button(s.remove, role: .destructive) { m.askRemove = d }
                             }
-                            Divider()
-                        }
-                        Button(s.remove, role: .destructive) { m.askRemove = d }
                     }
                 }
             }
         }
-        .onDeleteCommand { m.askRemove = m.deck }
+        // A folder's deck goes away with its file, not from the list.
+        .onDeleteCommand { if let d = m.deck, !m.isFolderFile(d.id) { m.askRemove = d } }
         .toolbar {
-            // With no decks the window shows Open… itself.
-            if !m.decks.isEmpty {
-                ToolbarItem {
-                    Button { AppDelegate.openPanel() } label: { Label(s.open, systemImage: "plus") }
-                        .help(s.open)
+            ToolbarItem {
+                Button { AppDelegate.openPanel() } label: { Label(s.open, systemImage: "plus") }
+                    .help(s.open)
+            }
+        }
+    }
+
+    /// The folder's own files under its name, then one section per subfolder ("Chemia/Klasa 1").
+    private func groups(in folder: URL) -> [(title: String, files: [URL])] {
+        let folder = folder.resolvingSymlinksInPath()
+        var out: [(title: String, files: [URL])] = []
+        // The folder's own files first, then the subfolders in Finder's order.
+        let top = m.folderFiles.filter { $0.deletingLastPathComponent().path == folder.path }
+        for url in top + m.folderFiles.filter({ !top.contains($0) }) {
+            let dir = url.deletingLastPathComponent().path
+            let rel = dir == folder.path ? folder.lastPathComponent : String(dir.dropFirst(folder.path.count + 1))
+            if out.last?.title == rel { out[out.count - 1].files.append(url) } else { out.append((rel, [url])) }
+        }
+        return out
+    }
+}
+
+struct DeckRow: View {
+    let name: String
+    let progress: String?
+    let icon: String
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(name).lineLimit(1).truncationMode(.middle)
+                if let progress {
+                    Text(progress)
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
                 }
             }
+        } icon: {
+            Image(systemName: icon)
         }
     }
 }
@@ -265,30 +318,47 @@ struct RateButton: View {
     }
 }
 
-/// How far into the deck: the cards passed so far, green for known, red for not, the accent
-/// for skipped - the same bar as in the web version.
+/// The whole deck as one bar, a slot per card in the order they come up: each card's own
+/// slot is green when known, red when not - right where that card is, not gathered at the
+/// start - and the cards passed without a rating so far are the accent.
 struct ProgressStrip: View {
     let deck: Deck
 
     var body: some View {
-        GeometryReader { g in
-            let total = max(1, deck.order.count)
-            let seen = CGFloat(deck.current + 1) / CGFloat(total) * g.size.width
-            let seenCount = CGFloat(deck.current + 1)
-            let known = CGFloat(deck.order.prefix(deck.current + 1).count { deck.ratings[$0] == true })
-            let unknown = CGFloat(deck.order.prefix(deck.current + 1).count { deck.ratings[$0] == false })
-            ZStack(alignment: .leading) {
-                Capsule().fill(.quaternary)
-                HStack(spacing: 0) {
-                    Rectangle().fill(Color.accentColor).frame(width: seen * (seenCount - known - unknown) / seenCount)
-                    Rectangle().fill(.green).frame(width: seen * known / seenCount)
-                    Rectangle().fill(.red).frame(width: seen * unknown / seenCount)
-                }
-                .clipShape(Capsule())
+        let order = deck.order
+        let ratings = deck.ratings
+        let current = deck.current
+        Canvas { context, size in
+            let total = max(1, order.count)
+            let slot = size.width / CGFloat(total)
+            context.clip(to: Path(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: size.height / 2))
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .style(.quaternary))
+            // Neighbouring cards of one colour are one rectangle, so a long deck stays a few shapes.
+            var runStart = 0
+            var runColor: Color?
+            func close(_ end: Int) {
+                guard let c = runColor else { return }
+                let rect = CGRect(x: CGFloat(runStart) * slot, y: 0, width: CGFloat(end - runStart) * slot, height: size.height)
+                context.fill(Path(rect), with: .color(c))
             }
-            .animation(.smooth, value: deck.current)
+            for i in 0...order.count {
+                var color: Color?
+                if i < order.count {
+                    switch ratings[order[i]] {
+                    case true?: color = .green
+                    case false?: color = .red
+                    case nil: color = i <= current ? .accentColor : nil
+                    }
+                }
+                if i == order.count || color != runColor {
+                    close(i)
+                    runStart = i
+                    runColor = color
+                }
+            }
         }
         .frame(height: 6)
+        .animation(.smooth, value: deck.current)
     }
 }
 
@@ -318,8 +388,11 @@ struct CardView: View {
                     }
                     .animation(.easeInOut(duration: 0.2), value: flipped)
                 } else {
-                    FlipCard(angle: flipped ? 180 : 0, front: front, back: back)
-                        .animation(.smooth(duration: 0.4), value: flipped)
+                    ZStack {
+                        front.modifier(FlipSide(angle: flipped ? 180 : 0, back: false))
+                        back.modifier(FlipSide(angle: flipped ? 180 : 0, back: true))
+                    }
+                    .animation(.smooth(duration: 0.4), value: flipped)
                 }
             }
             .offset(x: reduceMotion ? 0 : Self.rubberBand(drag + m.swipe, limit: g.size.width / 3))
@@ -346,26 +419,25 @@ struct CardView: View {
     }
 }
 
-/// Turns its content over around the vertical axis; past halfway the back shows.
-struct FlipCard<Front: View, Back: View>: View, Animatable {
+/// One side of a turning card. As a modifier SwiftUI redraws it on every frame of the turn,
+/// so each side shows exactly while it faces the viewer - a view with its own animatable
+/// angle was skipped on the first turn of a fresh card and showed the question mirrored.
+struct FlipSide: ViewModifier, Animatable {
     var angle: Double
-    let front: Front
-    let back: Back
+    let back: Bool
 
     var animatableData: Double {
         get { angle }
         set { angle = newValue }
     }
 
-    var body: some View {
-        ZStack {
-            if angle < 90 {
-                front
-            } else {
-                back.rotation3DEffect(.degrees(180), axis: (x: 0, y: 1, z: 0))
-            }
-        }
-        .rotation3DEffect(.degrees(angle), axis: (x: 0, y: 1, z: 0), perspective: 0.25)
+    func body(content: Content) -> some View {
+        let facing = back ? angle >= 90 : angle < 90
+        content
+            .opacity(facing ? 1 : 0)
+            .rotation3DEffect(.degrees(back ? angle - 180 : angle), axis: (x: 0, y: 1, z: 0), perspective: 0.25)
+            .allowsHitTesting(facing)
+            .accessibilityHidden(!facing)
     }
 }
 
@@ -410,29 +482,15 @@ struct Face: View {
     }
 }
 
-/// Plain text as text; with a formula, the picture KaTeX draws of the whole side.
+/// Plain text as text; with a formula, the side typeset by SwiftMath.
 struct CardText: View {
     let text: String
     let size: CGFloat
     let width: CGFloat
-    @Environment(\.colorScheme) private var scheme
-    @State private var image: NSImage?
 
     var body: some View {
-        if MathRenderer.hasMath(text) {
-            let key = MathRenderer.Key(text: text, width: Int(width), size: Int(size),
-                                       color: scheme == .dark ? "rgba(255,255,255,0.88)" : "rgba(0,0,0,0.86)")
-            Group {
-                if let img = image ?? MathRenderer.shared.cached(key) {
-                    Image(nsImage: img)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: img.size.width, maxHeight: img.size.height)
-                } else {
-                    ProgressView().controlSize(.small)
-                }
-            }
-            .task(id: key) { image = await MathRenderer.shared.image(key) }
+        if CardMath.hasMath(text) {
+            MathText(text: text, size: size)
         } else {
             Text(text)
                 .font(.system(size: size, weight: .medium))
@@ -527,6 +585,29 @@ struct SettingsView: View {
                 }
             } footer: {
                 Text(s.readPolishInfo)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                LabeledContent(s.folderTitle) {
+                    HStack {
+                        if let folder = m.folder {
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: folder.path))
+                                .resizable()
+                                .frame(width: 16, height: 16)
+                            Text(folder.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                        } else {
+                            Text(s.folderNone).foregroundStyle(.secondary)
+                        }
+                        Button(s.chooseFolder) { m.chooseFolder() }
+                    }
+                }
+                if m.folder != nil {
+                    Button(s.stopFolder) { m.folder = nil }
+                }
+            } footer: {
+                Text(s.folderInfo)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
