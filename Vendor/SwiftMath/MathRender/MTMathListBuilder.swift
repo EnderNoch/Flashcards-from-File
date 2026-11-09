@@ -412,7 +412,7 @@ public struct MTMathListBuilder {
             
             if char == "^" {
                 assert(!oneCharOnly, "This should have been handled before")
-                if (prevAtom == nil || prevAtom!.superScript != nil || !prevAtom!.isScriptAllowed()) {
+                if (prevAtom == nil || prevAtom!.superScript != nil || !prevAtom!.isScriptAllowed() || prevAtom is MTOverset) {
                     // If there is no previous atom, or if it already has a superscript
                     // or if scripts are not allowed for it, then add an empty node.
                     prevAtom = MTMathAtom(type: .ordinary, value: "")
@@ -424,7 +424,8 @@ public struct MTMathListBuilder {
                 continue
             } else if char == "_" {
                 assert(!oneCharOnly, "This should have been handled before")
-                if (prevAtom == nil || prevAtom!.subScript != nil || !prevAtom!.isScriptAllowed()) {
+                // Flashcards from File: \overset's scripts go beside it (MTOverset).
+                if (prevAtom == nil || prevAtom!.subScript != nil || !prevAtom!.isScriptAllowed() || prevAtom is MTOverset) {
                     // If there is no previous atom, or if it already has a subcript
                     // or if scripts are not allowed for it, then add an empty node.
                     prevAtom = MTMathAtom(type: .ordinary, value: "")
@@ -780,6 +781,16 @@ public struct MTMathListBuilder {
             // The command is an accent
             accent.innerList = self.buildInternal(true)
             return accent;
+        } else if command == "overset" || command == "stackrel" || command == "underset" {
+            // Flashcards from File: \overset{top}{base} (and \stackrel, \underset{bottom}{base}),
+            // e.g. an oxidation state over a symbol. Typeset as an operator with limits, whose
+            // own scripts stay beside it: \overset{x}{b}_n has n at the side, as in chemistry.
+            let mark = self.buildInternal(true)
+            let base = self.buildInternal(true)
+            let text = (base?.atoms ?? []).map(\.nucleus).joined()
+            let op = MTOverset(value: text.isEmpty ? " " : text, limits: true)
+            if command == "underset" { op.subScript = mark } else { op.superScript = mark }
+            return op
         } else if command == "frac" {
             // A fraction command has 2 arguments
             let frac = MTFraction()

@@ -1129,7 +1129,8 @@ class MTTypesetter {
         // For inline mode, we still center limits below for operators like \lim, but with tighter spacing
         let limits = op.limits && (style == .display || style == .text)
         var delta = CGFloat(0)
-        if op.nucleus.count == 1 {
+        // Flashcards from File: an \overset base is text, never an enlarged operator glyph.
+        if op.nucleus.count == 1 && !(op is MTOverset) {
             var glyph = self.findGlyphForCharacterAtIndex(op.nucleus.startIndex, inString:op.nucleus)
             if glyph != 0 {
                 // Enlarge large operators to make them visually distinctive

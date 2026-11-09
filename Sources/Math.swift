@@ -13,34 +13,71 @@ enum CardMath {
     }
 
     struct Line {
-        let latex: String
+        /// Words as `\text{}` and formulas, each its own piece, so one formula SwiftMath can't
+        /// read can be shown as written while the rest of the line stays typeset.
+        var parts: [Part]
         let block: Bool
+
+        /// Pieces with a space between them where the card has one: "$\\mathrm{HF}$," keeps its
+        /// comma right after the formula.
+        var latex: String {
+            parts.enumerated().map { i, p in (i == 0 || p.glued ? "" : "\\ ") + p.latex }.joined()
+        }
+
+        /// The line with every formula SwiftMath can't read turned into its own text.
+        func readable(size: CGFloat) -> Line {
+            var line = self
+            line.parts = parts.flatMap { p -> [Part] in
+                guard p.math, MathLayout(p.latex, size: size, maxWidth: 0, block: block) == nil else { return [p] }
+                return words(p.raw, glued: p.glued)
+            }
+            return line
+        }
+    }
+
+    struct Part {
+        let latex: String
+        let math: Bool
+        let raw: String
+        /// Written right after the previous piece, with no space between.
+        var glued = false
+    }
+
+    /// Words of plain text; the first is glued to what came before when the text doesn't start
+    /// with a space.
+    static func words(_ text: String, glued: Bool) -> [Part] {
+        text.split(separator: " ", omittingEmptySubsequences: true).enumerated().map { i, w in
+            Part(latex: "\\text{" + escape(String(w)) + "}", math: false, raw: String(w), glued: i == 0 && glued)
+        }
     }
 
     /// The side's text cut into lines: plain words go into `\text{}` one by one so they can
     /// wrap, inline formulas stay between them, block formulas and line breaks start a new line.
     static func lines(_ raw: String) -> [Line] {
         var out: [Line] = []
-        var current: [String] = []
+        var current: [Part] = []
         func flush() {
-            if !current.isEmpty { out.append(Line(latex: current.joined(separator: "\\ "), block: false)) }
+            if !current.isEmpty { out.append(Line(parts: current, block: false)) }
             current = []
         }
+        // Whether the text so far ends in a space - the next piece is glued to it if not.
+        var spaced = true
         for seg in PolishReading.segments(raw) {
             if seg.math {
+                let part = Part(latex: seg.text, math: true, raw: seg.text, glued: !spaced)
+                spaced = false
                 if seg.display {
                     flush()
-                    out.append(Line(latex: seg.text, block: true))
+                    out.append(Line(parts: [part], block: true))
                 } else {
-                    current.append(seg.text)
+                    current.append(part)
                 }
             } else {
-                for (n, part) in seg.text.components(separatedBy: "\n").enumerated() {
+                for (n, piece) in seg.text.components(separatedBy: "\n").enumerated() {
                     if n > 0 { flush() }
-                    for word in part.split(separator: " ", omittingEmptySubsequences: true) {
-                        current.append("\\text{" + escape(String(word)) + "}")
-                    }
+                    current += words(piece, glued: n == 0 && !spaced && !(piece.first?.isWhitespace ?? true))
                 }
+                spaced = seg.text.last?.isWhitespace ?? spaced
             }
         }
         flush()
@@ -66,9 +103,11 @@ struct MathText: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let lines = CardMath.lines(text)
+        // A formula SwiftMath can't read shows as written; the rest of its line stays typeset.
+        let lines = CardMath.lines(text).map { line in
+            MathLayout(line.latex, size: size, maxWidth: 0, block: line.block) == nil ? line.readable(size: size) : line
+        }
         let dark = scheme == .dark
-        // LaTeX SwiftMath can't read shows as the text it is.
         if lines.contains(where: { MathLayout($0.latex, size: size, maxWidth: 0, block: $0.block) == nil }) {
             Text(text)
                 .font(.system(size: size, weight: .medium))

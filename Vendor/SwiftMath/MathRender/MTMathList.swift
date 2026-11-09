@@ -218,6 +218,8 @@ public class MTMathAtom: NSObject {
     public func copy() -> MTMathAtom {
         switch self.type {
             case .largeOperator:
+                // Flashcards from File: an \overset stays one when copied.
+                if let o = self as? MTOverset { return MTOverset(o) }
                 return MTLargeOperator(self as? MTLargeOperator)
             case .fraction:
                 return MTFraction(self as? MTFraction)
@@ -450,6 +452,12 @@ public class MTLargeOperator: MTMathAtom {
         self.limits = limits
     }
 }
+
+// MARK: - MTOverset (Flashcards from File)
+
+/// \overset and friends: a large operator whose nucleus is the base text and whose limits are
+/// the marks. Scripts written after it go beside it, not into its limits (MTMathListBuilder).
+public class MTOverset: MTLargeOperator {}
 
 // MARK: - MTInner
 /** An inner atom. This denotes an atom which contains a math list inside it. An inner atom
